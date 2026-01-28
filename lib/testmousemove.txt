@@ -1,0 +1,88 @@
+#include <Arduino.h>
+#include <BleMouse.h>
+#include <Wire.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+
+Adafruit_MPU6050 mpu;
+BleMouse bleMouse("BioSync Mouse", "ESP32", 100);
+
+// --- TUNING SECTION ---
+const float GRAVITY_THRESHOLD = 8.0; 
+
+// Increase these numbers to make mouse faster
+// Decrease to make it more precise
+float SENSITIVITY_X = 20.0;  // Left/Right Speed
+float SENSITIVITY_Y = 30.0;  // Up/Down Speed (Often needs to be higher)
+
+// Deadzone: Ignore tiny movements to stop jitter
+// If cursor drifts when still, increase this to 0.1 or 0.15
+float DEADZONE = 0.08;      
+
+bool isMouseActive = false; 
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin();
+  bleMouse.begin();
+
+  if (!mpu.begin()) {
+    Serial.println("MPU6050 Not Found!");
+    while (1) delay(10);
+  }
+  
+  mpu.setAccelerometerRange(MPU6050_RANGE_4_G);
+  mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+  
+  // --- CRITICAL FIX FOR LAG ---
+  // Was BAND_21_HZ (Slow & Smooth) -> Changed to BAND_94_HZ (Fast & Snappy)
+  mpu.setFilterBandwidth(MPU6050_BAND_94_HZ);
+  
+  Serial.println(">> High Performance Mode Started.");
+}
+
+void loop() {
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+
+  // --- 1. ORIENTATION CHECK ---
+  // (Logic remains the same as your working version)
+  if (abs(a.acceleration.z) > GRAVITY_THRESHOLD) {
+    if (isMouseActive) {
+      isMouseActive = false; // Mouse OFF when Flat
+    }
+  }
+  else if (abs(a.acceleration.x) > GRAVITY_THRESHOLD) {
+    if (!isMouseActive) {
+      isMouseActive = true;  // Mouse ON when Handshake
+    }
+  }
+
+  // --- 2. MOVEMENT ---
+  if (isMouseActive && bleMouse.isConnected()) {
+    
+    // Read Gyro values (in Radians)
+    float rawX = g.gyro.z; // Left/Right motion
+    float rawY = g.gyro.x; // Up/Down motion (Forward/Backward tilt)
+
+    // Apply Deadzone (If movement is tiny, ignore it)
+    if (abs(rawX) < DEADZONE) rawX = 0;
+    if (abs(rawY) < DEADZONE) rawY = 0;
+
+    // Convert to Mouse Integers
+    // Note: I added a (-) to rawY. If Up/Down is backwards, remove that minus sign.
+
+    // int moveX = -(int)(g.gyro.z * 30); 
+    // int moveY = -(int)(g.gyro.x * 25); 
+    int moveX = -(int)(rawX * SENSITIVITY_X);
+    int moveY = -(int)(rawY * SENSITIVITY_Y);
+
+    if (moveX != 0 || moveY != 0) {
+      bleMouse.move(moveY, moveX);
+    }
+  }
+
+  // --- 3. SPEED BOOST ---
+  // Reduced from 20ms to 8ms for smoother 125Hz feel
+  delay(10); 
+}

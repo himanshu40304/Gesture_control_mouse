@@ -1,0 +1,91 @@
+#include <Arduino.h>
+#include <BleMouse.h>
+
+// --- Configuration ---
+const int INDEX_PIN = 14;   // Left Click
+const int MIDDLE_PIN = 12;  // Right Click
+const int STABLE_TIME = 20; // 30ms Debounce/Glitch filter
+
+// --- State Variables ---
+BleMouse bleMouse("BioSync Test Mouse", "MUJ", 100);
+
+// Timer variables for Index (Left)
+unsigned long indexTouchStart = 0;
+bool indexConfirmed = false;
+
+// Timer variables for Middle (Right)
+unsigned long middleTouchStart = 0;
+bool middleConfirmed = false;
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Internal Pull-ups (Touch to GND to activate)
+  pinMode(INDEX_PIN, INPUT_PULLUP);
+  pinMode(MIDDLE_PIN, INPUT_PULLUP);
+
+  Serial.println("Starting BLE Mouse...");
+  bleMouse.begin();
+  Serial.println(">> GOAL: Pair with 'BioSync Test Mouse' in Bluetooth settings now.");
+}
+
+void loop() {
+  if (bleMouse.isConnected()) {
+    
+    // ==========================================
+    // 1. LEFT CLICK LOGIC (Index Finger)
+    // ==========================================
+    bool indexTouching = (digitalRead(INDEX_PIN) == LOW);
+
+    // Start Timer
+    if (indexTouching && indexTouchStart == 0) {
+      indexTouchStart = millis();
+    }
+
+    // Reset Timer if touch disappears
+    if (!indexTouching) {
+      indexTouchStart = 0;
+      indexConfirmed = false;
+    }
+
+    // Trigger Action (Only once per valid hold)
+    if (indexTouching && !indexConfirmed && (millis() - indexTouchStart > STABLE_TIME)) {
+      Serial.println("[ACTION] Left Click Sent");
+      bleMouse.click(MOUSE_LEFT);
+      indexConfirmed = true; 
+    }
+
+    // ==========================================
+    // 2. RIGHT CLICK LOGIC (Middle Finger)
+    // ==========================================
+    bool middleTouching = (digitalRead(MIDDLE_PIN) == LOW);
+
+    // Start Timer
+    if (middleTouching && middleTouchStart == 0) {
+      middleTouchStart = millis();
+    }
+
+    // Reset Timer
+    if (!middleTouching) {
+      middleTouchStart = 0;
+      middleConfirmed = false;
+    }
+
+    // Trigger Action
+    if (middleTouching && !middleConfirmed && (millis() - middleTouchStart > STABLE_TIME)) {
+      Serial.println("[ACTION] Right Click Sent");
+      bleMouse.click(MOUSE_RIGHT);
+      middleConfirmed = true;
+    }
+
+  } else {
+    // Optional: Print a dot every second to show it's waiting for connection
+    static unsigned long lastPrint = 0;
+    if (millis() - lastPrint > 1000) {
+      Serial.println("Waiting for Bluetooth Connection...");
+      lastPrint = millis();
+    }
+  }
+
+  delay(10); // Small delay for stability
+}
